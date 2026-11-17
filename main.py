@@ -5,6 +5,7 @@ from jose import JWTError, jwt
 from jose.exceptions import ExpiredSignatureError
 from datetime import datetime, timedelta
 import bcrypt
+
 from pymongo import MongoClient
 import os
 from dotenv import load_dotenv
@@ -18,6 +19,7 @@ PORT = int(os.getenv("PORT","8000"))
 
 client = MongoClient(MONGODB_URI)   # Initialize the MongoDB client using the URI
 db = client[MONGODB_DB]     # Connect to the specific database using the DB variable name
+
 app = FastAPI()
 
 # ======== CONFIG FOR JWT ========
@@ -40,9 +42,11 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
 
 # ======== MONGODB USER COLLECTION ========
 users_collection = db["users"]
+
 def save_user_to_db(email: str, hashed_pw: str):
     # Insert document into MongoDB Atlas
     users_collection.insert_one({"email": email, "hashed_password": hashed_pw})
+
 def get_user_by_email(email: str):
     # Query MongoDB Atlas for the user
     user = users_collection.find_one({"email": email})

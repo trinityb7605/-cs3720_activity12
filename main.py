@@ -24,9 +24,45 @@ app = FastAPI()
 
 
 # ======== CONFIG FOR JWT ========
-SECRET_KEY = os.getenv("SECRET_KEY")
+SECRET_KEY = os.getenv("SECRET_KEY", "")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 120
+
+
+# ========= FROM ROBOTS ===============
+from fastapi.middleware.cors import CORSMiddleware
+collection = db["robots"] 
+
+# Optional: enable CORS if you’ll connect from React/React Native
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"], # or specify your frontend domain
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# --- Minimal Pydantic model ---
+class Robot(BaseModel):
+    name: str
+    price: float
+    description: str
+    imageUrl: str
+
+# --- Get all robots ---
+@app.get("/robots")
+def get_robots():
+    robots = list(collection.find()) # Retrieve all documents
+    for r in robots:
+        r["_id"] = str(r["_id"]) # Convert ObjectId to string
+    return robots
+
+# --- Add robot ---
+@app.post("/robots")
+def add_robot(robot: Robot):
+    collection.insert_one(robot.model_dump())
+    return {"message": "Robot added successfully"}
+
 
 # ======== BCRYPT HELPERS ========
 def hash_password(password: str) -> str:
@@ -130,7 +166,7 @@ def login(form_data: OAuth2PasswordRequestForm = Depends()):
 def get_current_user(token: str = Depends(oauth2_scheme)):
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        email: str = payload.get("sub")
+        email: str | None = payload.get("sub")
 
         if email is None:
             raise HTTPException(status_code=401, detail="Invalid token")

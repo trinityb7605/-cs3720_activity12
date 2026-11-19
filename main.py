@@ -3,7 +3,8 @@ from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from pydantic import BaseModel
 from jose import JWTError, jwt
 from jose.exceptions import ExpiredSignatureError
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
+import hashlib
 import bcrypt
 
 from pymongo import MongoClient
@@ -90,6 +91,7 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
 
 # ======== MONGODB USER COLLECTION ========
 users_collection = db["users"]
+revoked_tokens_collection = db["revoked_tokens"]
 
 def save_user_to_db(email: str, hashed_pw: str):
     # Insert document into MongoDB Atlas
@@ -171,6 +173,10 @@ def get_current_user(token: str = Depends(oauth2_scheme)):
         if email is None:
             raise HTTPException(status_code=401, detail="Invalid token")
 
+        token_hash = hashlib.sha256(token.encode("utf-8")).hexdigest()
+        if revoked_tokens_collection.find_one({"token_hash": token_hash}):
+            raise HTTPException(status_code=401, detail="Token has been revoked")
+
         user = get_user_by_email(email)
         if user is None:
             raise HTTPException(status_code=401, detail="User not found")
@@ -186,6 +192,24 @@ def get_current_user(token: str = Depends(oauth2_scheme)):
 @app.get("/protected")
 def read_protected_data(current_user: str = Depends(get_current_user)):
     return {"msg": f"Hello {current_user}, this is protected data!"}
+
+@app.post("/logout")
+def logout(
+    token: str = Depends(oauth2_scheme),
+    current_user: str = Depends(get_current_user),
+):
+    payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+    token_expiration = payload.get("exp")
+    if not isinstance(token_expiration, (int, float)):
+        raise HTTPException(status_code=401, detail="Invalid token")
+
+    revoked_tokens_collection.create_index("expires_at", expireAfterSeconds=0)
+    token_hash = hashlib.sha256(token.encode("utf-8")).hexdigest()
+    revoked_tokens_collection.insert_one({
+        "token_hash": token_hash,
+        "expires_at": datetime.fromtimestamp(token_expiration, tz=timezone.utc),
+    })
+    return {"msg": f"Logged out {current_user}"}
 
 @app.get("/hello")
 def hello():
